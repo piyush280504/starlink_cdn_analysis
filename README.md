@@ -1,3 +1,12 @@
+## 19/Sep/2026
+```
+PS C:\Users\piyus\OneDrive\Documents\Project> cd .\starlink-cdn-analysis\       
+PS C:\Users\piyus\OneDrive\Documents\Project\starlink-cdn-analysis> .\.venv\Scripts\Activate.ps1     
+(.venv) PS C:\Users\piyus\OneDrive\Documents\Project\starlink-cdn-analysis> 
+
+
+```
+
 # It’s a bird? It’s a plane? It’s CDN!: Investigating Content Delivery Networks in the LEO Satellite Networks Era
 
 This is the artifacts repository of the HotNets 2024 paper: It’s a bird? It’s a plane? It’s CDN!: Investigating Content Delivery Networks in the LEO Satellite Networks Era
