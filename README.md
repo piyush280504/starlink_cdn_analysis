@@ -5,6 +5,15 @@ PS C:\Users\piyus\OneDrive\Documents\Project\starlink-cdn-analysis> .\.venv\Scri
 (.venv) PS C:\Users\piyus\OneDrive\Documents\Project\starlink-cdn-analysis> 
 
 
+
+(.venv) PS C:\Users\piyus\OneDrive\Documents\Project\starlink-cdn-analysis> python main.py
+
+
+```
+
+### Entry Point
+```
+(.venv) PS C:\Users\piyus\OneDrive\Documents\Project\starlink-cdn-analysis> python main.py
 ```
 
 # It’s a bird? It’s a plane? It’s CDN!: Investigating Content Delivery Networks in the LEO Satellite Networks Era
