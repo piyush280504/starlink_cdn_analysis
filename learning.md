@@ -26,19 +26,29 @@ The module begins by importing libraries and defining its first two helper funct
 
 ## High-level execution flow
 
-```text
-Start script
-  -> configure Matplotlib and city-name helpers
-  -> locate/link/extract the four dataset ZIP archives
-  -> aggregate Starlink NetMet browser measurements by country and URL
-  -> aggregate terrestrial NetMet browser measurements by country and URL
-  -> create FCP and HTTP-response comparison plots
-  -> load Starlink and terrestrial Cloudflare measurements
-  -> create Maputo-to-CDN maps and a global RTT-difference map
-  -> load satellite simulation files
-  -> calculate path latencies, build a DataFrame, create CDF and box plots
-  -> finish naturally
+```mermaid
+flowchart TD
+    A([python main.py<br/>or import main]) --> B[Import libraries and define helpers]
+    B --> C[Configure Matplotlib, colours, and fonts]
+    C --> D[Resolve project, archive, data, and figure paths]
+    D --> E{m1756495 exists?}
+    E -- no --> X([FileNotFoundError / exit])
+    E -- yes --> F[Link or copy the four ZIP archives into the short data path]
+    F --> G[Extract archives lacking an .extraction_complete marker]
+    G --> H[Read and aggregate Starlink NetMet measurements]
+    H --> I[Read and aggregate terrestrial NetMet measurements]
+    I --> J[Create FCP box plot and HTTP-difference CDF]
+    J --> K[Load and group Starlink Cloudflare measurements]
+    K --> L[Load and group terrestrial Cloudflare measurements]
+    L --> M[Create two Maputo CDN maps and a global RTT map]
+    M --> N[Read simulation GSL, ISL, path, and HTTP files]
+    N --> O[Calculate cumulative path latencies]
+    O --> P[Build a Pandas DataFrame]
+    P --> Q[Save simulation CDF and box plots]
+    Q --> R([Natural end])
 ```
+
+The redirection to **X** is the only deliberate early stop. Other missing keys, malformed JSON, unavailable libraries, or plotting errors can also stop the script because most exceptions are not caught.
 
 ## Setup and data loading
 
@@ -55,7 +65,9 @@ For example, visually different spellings can become a comparable lookup key. It
 
 ### City lookup — `find_city(city_name, normalized_cities)` (lines 45–50)
 
-This function calls `city_lookup_key`, then looks for an exact key in `normalized_cities`. If there is no exact match, `difflib.get_close_matches` performs a conservative fuzzy match with a similarity threshold of `0.86`. It returns the matching city metadata dictionary or `None`.
+**Inputs:** a raw city name and a dictionary whose keys are normalized city names and whose values are city metadata.  
+**Returns:** the metadata dictionary for the city, or `None` when no sufficiently similar city exists.  
+**How it works:** it calls `city_lookup_key`, tries a constant-time exact dictionary lookup, then uses `difflib.get_close_matches` with a `0.86` cutoff as a fallback. The fuzzy fallback is useful for damaged source encoding but can theoretically select a similarly named city; callers handle a `None` result by skipping the record.
 
 ### Archive/data setup (lines 57–119)
 
@@ -111,7 +123,9 @@ Negative values on the global map mean Starlink was faster; positive values mean
 
 ### `plot_gsdata(gsdata_df, ax, label, marker, color, size=10, lw=0.6)` (lines 874–882)
 
-Adds point-of-presence locations to an existing map axis. It reads `lat` and `long` columns from a DataFrame and calls `ax.scatter`. It returns nothing; Matplotlib keeps the plotted artist on the axis.
+**Inputs:** a DataFrame with `lat` and `long` columns; a Matplotlib axis; legend label; marker; colour; and optional marker size/line width.  
+**Returns:** `None`.  
+**Side effect:** calls `ax.scatter`, adding the points directly to the existing Cartopy/Matplotlib map. The legend label is attached to that plotted point collection. It assumes the two coordinate columns exist and will raise `KeyError` if they do not.
 
 ## Simulation-analysis functions
 
@@ -119,19 +133,27 @@ The final section turns satellite path/simulation JSON files into latency distri
 
 ### `find_files(directory, prefix)` (lines 962–963)
 
-Returns filenames in `directory` whose names start with `prefix`.
+**Inputs:** a directory path and a filename prefix.  
+**Returns:** a list of matching *filenames*, not full paths.  
+**Important detail:** callers must combine each result with `directory` before opening it. `os.listdir` raises `FileNotFoundError` when the directory does not exist.
 
 ### `parse_timestamp(filename)` (lines 966–969)
 
-Extracts the final two underscore-separated filename components and parses them as a `%Y%m%d_%H%M%S` `datetime`. It returns that timestamp.
+**Input:** a filename ending in `_<YYYYMMDD>_<HHMMSS>.<extension>`.  
+**Returns:** a `datetime` object.  
+**Failure mode:** a differently named file raises `ValueError` (or an indexing error), because the code assumes the final two underscore-separated parts are a valid timestamp.
 
 ### `read_json_file(filepath)` (lines 972–974)
 
-Opens a JSON file and returns the decoded Python object.
+**Input:** a path to a JSON file.  
+**Returns:** the Python list or dictionary produced by `json.load`.  
+**Failure mode:** missing files raise `FileNotFoundError`; invalid JSON raises `json.JSONDecodeError`.
 
 ### `process_gsl_files(directory)` (lines 977–987)
 
-Finds all `gsl_latency_bw_` files, collects every `latency` field, writes a comma-separated `cdf0` file, and returns the latency list. “GSL” is the ground-station link portion of a satellite path.
+**Input:** the simulation-results directory.  
+**Returns:** one flat list of all numeric `latency` values found in files beginning `gsl_latency_bw_`.  
+**Side effect:** writes the same values, comma-separated, to a file named `cdf0` in the simulation data directory. “GSL” is the ground-station link portion of a satellite path. The function expects every JSON item to contain a `latency` key.
 
 ### `process_path_files(directory)` (defined twice)
 
@@ -140,19 +162,25 @@ There are two functions with this name:
 - The first definition at lines 990–1018 prints diagnostics and writes `other_cdfs`.
 - The second definition at lines 1079–1097 replaces the first one before it can be called.
 
-Therefore, the active version only reads each `path_` file, finds the closest timestamped GSL and ISL files, calculates a latency vector, and returns the list of vectors. It does **not** write `other_cdfs` or print the diagnostics from the earlier definition.
+Therefore, the active version only reads each `path_` file, finds the closest timestamped GSL and ISL files, calls `calculate_latencies`, and returns one latency vector per path. It does **not** write `other_cdfs` or print the diagnostics from the earlier definition. This is an accidental override and a good candidate for deletion during refactoring.
 
 ### `find_matching_file(directory, prefix, timestamp)` (lines 1021–1023)
 
-Finds all files with the requested prefix and returns the one whose parsed timestamp is closest to `timestamp`.
+**Inputs:** a directory, a prefix such as `gsl_latency_bw_`, and a target `datetime`.  
+**Returns:** the filename with the smallest absolute time difference from the target.  
+**Failure mode:** if no filename begins with the prefix, `min(...)` raises `ValueError`.
 
 ### `process_http_responses(filename)` (lines 1026–1041)
 
-Loads nested simulation HTTP-response data. It traverses outer group, city, provider, and location layers, keeps responses strictly between 25 and 80 ms, and returns one flat list.
+**Input:** the accumulated Starlink HTTP-response JSON path.  
+**Returns:** one flat list of HTTP response times strictly greater than 25 ms and strictly less than 80 ms.  
+**How it works:** it traverses four nested dictionary levels—outer group, city, CDN provider, and CDN location—then extends the output list with the accepted measurements. Values outside the range are intentionally excluded as outliers/non-comparable samples.
 
 ### `calculate_latencies(path_info, gsl_data, isl_data)` (lines 1044–1076)
 
-This is the core simulation calculation.
+**Inputs:** `path_info` (filename followed by satellite IDs), GSL edge data, and ISL edge data.  
+**Returns:** a list of ten cumulative latencies, representing the path after one through ten satellite hops.  
+**This is the core simulation calculation.**
 
 1. The first list item is a path filename; the rest are satellite identifiers in the route.
 2. It reads source and destination station identifiers from the filename.
@@ -163,23 +191,33 @@ This is the core simulation calculation.
 
 ### `read_terrestrial(filename)` (lines 1100–1102)
 
-Loads a JSON array and returns only values below 80 ms.
+**Input:** a path to a JSON array of terrestrial latencies.  
+**Returns:** a new list containing only values below 80 ms.  
+**Purpose:** applies the same upper-bound filtering idea used for the simulated/Starlink comparison.
 
 ### `create_dataframe(cdf0, other_cdfs, cdf7, cdf8)` (lines 1105–1126)
 
-Creates a Pandas DataFrame with satellite-cache scenarios (`1st Sat`, `3 ISLs`, `5 ISLs`, and `10 ISLs`) plus Starlink and terrestrial observations. Shorter series are padded with `NaN` so columns have equal length. `cdf0` is accepted but not used in the current DataFrame.
+**Inputs:** raw GSL data (`cdf0`), calculated path vectors (`other_cdfs`), filtered Starlink HTTP responses (`cdf7`), and terrestrial values (`cdf8`).  
+**Returns:** a Pandas DataFrame with one series per cache/hop scenario and two observed-network series.  
+**How it works:** it chooses a maximum column length, pulls selected positions from each ten-value path vector, and pads shorter arrays with `NaN`. Pandas uses `NaN` to represent absent values, allowing columns to have equal length. `cdf0` is accepted but not used in the current implementation—another useful cleanup opportunity.
 
 ### `plot_cdf(df)` (lines 1129–1160)
 
-For every DataFrame column, removes missing values, sorts the remaining values, calculates empirical percentiles, and plots a CDF. The function saves `cdn_cdf_plot.pdf` and returns nothing.
+**Input:** the DataFrame from `create_dataframe`.  
+**Returns:** `None`.  
+**Side effects:** removes `NaN` from each column, sorts values, calculates an empirical CDF (`1/n` through `1`), draws all series on one axis, displays the figure, and saves `cdn_cdf_plot.pdf`. Starlink and terrestrial lines use different black dashed/dotted styles; satellite scenarios use colours from `tab10`.
 
 ### `adjust_box(plot, idx)` (lines 1163–1166)
 
-Changes the first box's colour and median colour. This definition replaces the earlier `adjust_box(plot)` function from lines 315–318. Neither version is called by the current program, so they have no runtime effect.
+**Inputs:** a Matplotlib box-plot result dictionary and a colour index.  
+**Returns:** `None`.  
+**Side effect:** changes the first box's face colour and its median line. This definition replaces the earlier `adjust_box(plot)` function from lines 315–318. Neither version is called by the current program, so they have no runtime effect.
 
 ### `plot_boxplot(df)` (lines 1169–1213)
 
-Selects the `3 ISLs`, `5 ISLs`, and `10 ISLs` columns, makes a horizontal box plot, colours its components, adds a 17 ms terrestrial reference line, saves `satellite_cdn_percentile.pdf`, and returns nothing.
+**Input:** the DataFrame from `create_dataframe`.  
+**Returns:** `None`.  
+**Side effects:** selects only the `3 ISLs`, `5 ISLs`, and `10 ISLs` columns; draws a horizontal box plot; changes colours, whiskers, caps, and medians; draws a 17 ms terrestrial reference line; displays the plot; and saves `satellite_cdn_percentile.pdf`.
 
 ## Final top-level calls
 
